@@ -18,6 +18,6 @@ class QuickStartBrowser(QtWebKit.QWebView):
 def createInterface():
 
     web_view = QuickStartBrowser()
-    web_view.load(QtWebKit.QUrl('http://25.125.36.248:5000'))
+    web_view.load('http://25.125.36.248:5000')
 
     return web_view
