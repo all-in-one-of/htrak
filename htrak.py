@@ -185,7 +185,8 @@ def _passColor(flow_direction, prim, geometry):
 		i = total_verts
 		vertices = reversed(prim.vertices())
 	for vertex in vertices:
-		
+		if hou.updateProgressAndCheckForInterrupt():
+			break
 		if i > 0 and i < total_verts:
 			point = vertex.point()
 			point2 = prim.vertices()[i+1].point()
@@ -248,13 +249,16 @@ Main loop for the solver. Call this in Python SOP
 def solverStep(currentGeo, previousGeo):
 	
 	geo = hou.pwd().geometry()
-	
+	i = 0
 	for prim in geo.prims():
 		found = False
+		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
+			break
 		if prim.attribValue('Flow') is not 0 and len(prim.vertices()) > 2:
 			found = _passColor(prim.attribValue('Flow'),prim,geo)
 		if found:
 			continue
+		i = i+1
 	return
 
 
