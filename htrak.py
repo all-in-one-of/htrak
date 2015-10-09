@@ -1,7 +1,8 @@
 import numpy as np
 import hou
-import thread
+import threading
 import math
+import random
 
 from nibabel import trackvis
 
@@ -57,6 +58,66 @@ def isInside(pointA,pointB,radius):
 	return ((bx-ax)*(bx-ax) + (by-ay)*(by-ay) + (bz-az)*(bz-az) <= radius*radius)
 
 '''
+Divide list into n sized chunks
+Can be accessed using .next() call on generator object
+'''
+def chunks(l, n):
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
+
+'''
+Multithreaded create attributes.
+Operates on 1/4 of the set per thread.
+'''
+def _threadCreateAttribute(primitives,geo,end_points,radius):
+	stream_starts = {}
+	stream_ends = {}
+	i = 0
+	for prim in primitives:
+		stream_starts[str(i)] = ''
+		stream_ends[str(i)] = ''
+		i = i+1
+	
+	i = 0
+	for prim in primitives:
+		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
+			break
+
+		# Check prim start and end against all other prim start and ends.
+		# Group near ends and near starts.
+
+		pointA = prim.vertices()[0].point().position()
+
+		for stream_id in end_points:
+			if stream_id == str(i):
+				continue
+			pointB = end_points[stream_id]['start'][1]
+			if isInside(pointA,pointB,radius):
+				stream_starts[str(i)] = stream_starts[str(i)] + stream_id + ' ' + '0' + ','
+
+			pointB = end_points[stream_id]['end'][1]
+			if isInside(pointA,pointB,radius):
+				stream_starts[str(i)] = stream_starts[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
+
+		pointA = prim.vertices()[len(prim.vertices())-1].point().position()
+
+		for stream_id in end_points:
+			if stream_id == str(i):
+				continue
+			pointB = end_points[stream_id]['start'][1]
+			if isInside(pointA,pointB,radius):
+				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + '0' + ','
+
+			pointB = end_points[stream_id]['end'][1]
+			if isInside(pointA,pointB,radius):
+				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
+
+		prim.setAttribValue('StartNeighbors',stream_starts[str(i)])
+		prim.setAttribValue('EndNeighbors',stream_ends[str(i)])
+
+		i = i+1
+
+'''
 Read in curve data and create attributes for visualization.
 Find start points and end points within a spherical radius of each start and end.
 '''
@@ -92,7 +153,10 @@ def createAttributes(radius):
 		stream_starts[str(i)] = ''
 		stream_ends[str(i)] = ''
 		i = i+1
-	
+	'''
+	######################
+	# SINGLE THREADED CODE
+	######################
 	i = 0
 	for prim in geo.prims():
 		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
@@ -131,6 +195,14 @@ def createAttributes(radius):
 		prim.setAttribValue('EndNeighbors',stream_ends[str(i)])
 
 		i = i+1
+	'''
+
+	primitives = chunks(geo.prims(),len(geo.prims())/4)
+	threads = []
+	for i in range(4):
+		t = threading.Thread(target =_threadCreateAttribute, args=(primitives.next(),geo,end_points,radius, ))
+		threads.append(t)
+		t.start()
 
 	groupStartEndPoints(geo)
 
@@ -185,8 +257,8 @@ def _passColor(flow_direction, prim, geometry):
 		i = total_verts
 		vertices = reversed(prim.vertices())
 	for vertex in vertices:
-		if hou.updateProgressAndCheckForInterrupt():
-			break
+		#if hou.updateProgressAndCheckForInterrupt():
+		#	break
 		if i > 0 and i < total_verts:
 			point = vertex.point()
 			point2 = prim.vertices()[i+1].point()
@@ -210,6 +282,7 @@ def _passColor(flow_direction, prim, geometry):
 				return True
 
 		elif i == 0:
+
 			point = vertex.point()
 			rgb = point.attribValue('Cd')
 			
@@ -243,12 +316,38 @@ def _passColor(flow_direction, prim, geometry):
 
 		i = i + flow_direction
 
+''' 
+Run multithreaded solver step
+'''
+def _threadSolverStep(primitives, geo):
+	i = 0
+	for prim in primitives:
+		found = False
+		if prim.attribValue('Flow') is not 0 and len(prim.vertices()) > 2:
+			found = _passColor(prim.attribValue('Flow'),prim,geo)
+		if found:
+			continue
+		i = i+1
+	return
+
 '''
 Main loop for the solver. Call this in Python SOP
 '''
 def solverStep(currentGeo, previousGeo):
 	
 	geo = hou.pwd().geometry()
+
+	primitives = chunks(geo.prims(),len(geo.prims())/4)
+	'''
+	threads = []
+	for i in range(1):
+		t = threading.Thread(target =_threadSolverStep, args=(primitives.next(), geo, ))
+		threads.append(t)
+		t.start()
+
+	#groupStartEndPoints(geo)
+	
+	'''
 	i = 0
 	for prim in geo.prims():
 		found = False
@@ -259,29 +358,20 @@ def solverStep(currentGeo, previousGeo):
 		if found:
 			continue
 		i = i+1
-	return
 
+def startPoints():
 
+	node = hou.pwd()
+	geo = node.geometry()
 
+	# Add code to modify contents of geo.
+	# Use drop down menu to select examples.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	for i in range(10):
+	    rand = random.randrange(0,len(geo.prims()))
+	    rgb = (random.uniform(0,1),random.uniform(0,1),random.uniform(0,1))
+	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',rgb)
+	    geo.prims()[rand].setAttribValue('Flow',1)
 
 
 
