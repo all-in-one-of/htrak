@@ -106,11 +106,11 @@ def _threadCreateAttribute(primitives,geo,end_points,radius):
 				continue
 			pointB = end_points[stream_id]['start'][1]
 			if isInside(pointA,pointB,radius):
-				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + '0' + ','
+				stream_ends[str(i)] = stream_ends[str(i)] + stream_id + ' ' + '0' + ','
 
 			pointB = end_points[stream_id]['end'][1]
 			if isInside(pointA,pointB,radius):
-				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
+				stream_ends[str(i)] = stream_ends[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
 
 		prim.setAttribValue('StartNeighbors',stream_starts[str(i)])
 		prim.setAttribValue('EndNeighbors',stream_ends[str(i)])
@@ -133,6 +133,8 @@ def createAttributes(radius):
 		geo.addAttrib(hou.attribType.Prim,'EndNeighbors',"")
 	if geo.findPrimAttrib('StartNeighbors') is None:
 		geo.addAttrib(hou.attribType.Prim,'StartNeighbors',"")
+	if geo.findPrimAttrib('CurrentPoint') is None:
+		geo.addAttrib(hou.attribType.Prim,'CurrentPoint',-1)
 
 	# Iterate through the streamlines and create a dict from id to Start and End Points
 	end_points = {}
@@ -145,6 +147,7 @@ def createAttributes(radius):
 
 	# Using start and end dicts, create a new dict of stream # to start points and end
 	# points within the radius of a sphere
+	'''
 	stream_starts = {}
 	stream_ends = {}
 	
@@ -153,6 +156,7 @@ def createAttributes(radius):
 		stream_starts[str(i)] = ''
 		stream_ends[str(i)] = ''
 		i = i+1
+	'''
 	'''
 	######################
 	# SINGLE THREADED CODE
@@ -197,27 +201,19 @@ def createAttributes(radius):
 		i = i+1
 	'''
 
-	primitives = chunks(geo.prims(),len(geo.prims())/4)
+	primitives = chunks(geo.prims(),len(geo.prims())/3)
 	threads = []
-	for i in range(4):
+	for i in range(3):
 		t = threading.Thread(target =_threadCreateAttribute, args=(primitives.next(),geo,end_points,radius, ))
 		threads.append(t)
 		t.start()
+		#t.join()
+
+	#for t in threads:
+	#	t.join()
 
 	groupStartEndPoints(geo)
 
-'''
-Helper function to find the lumninance of the color
-'''
-def _lum(color):
-	return (0.2126*color[0]+0.7152*color[1]+0.0722*color[2])
-	#return (math.sqrt(color[0]*color[0] + color[1]*color[1] + color[2]*color[2]))
-
-def _colorEqual(color1,color2):
-	if color1[0] == color2[0] and color1[1] == color2[1] and color1[2] == color2[2]:
-		return True
-	else:
-		return False
 '''
 Helper function to check and see if the solver reaches the end of a stream
 If it does, it sends the signal color to the endpoints within the radius of that stream
@@ -236,127 +232,51 @@ def _checkForEndPoint(index,rgb,prim,flow_direction,geometry):
 				point2 = prim2.vertices()[int(loc[1])].point()
 				prim2.setAttribValue('Flow',1)
 				rgb2 = point2.attribValue('Cd')
-				if not _colorEqual(rgb,rgb2):
-					point2.setAttribValue('Cd',(rgb2[0]+rgb[0],rgb2[1]+rgb[1],rgb2[2]+rgb[2]))
-					prim.setAttribValue('Flow',0)
-					if int(loc[1]) == 0:
-						prim2.setAttribValue('Flow',1)
-					else:
-						prim2.setAttribValue('Flow',-1)
-
-'''
-Helper function to pass color to neighboring points
-If a point has a color added to it, return true
-'''
-def _passColor(flow_direction, prim, geometry):
-	total_verts = len(prim.vertices()) - 1
-	if flow_direction == 1:
-		i = 0
-		vertices = prim.vertices()
-	else:# prim.attribValue('Flow') == -1:
-		i = total_verts
-		vertices = reversed(prim.vertices())
-	for vertex in vertices:
-		#if hou.updateProgressAndCheckForInterrupt():
-		#	break
-		if i > 0 and i < total_verts:
-			point = vertex.point()
-			point2 = prim.vertices()[i+1].point()
-			point3 = prim.vertices()[i-1].point()
-
-			rgb = point.attribValue('Cd')
-			rgb_sum = _lum(rgb)
-			rgb2 = point2.attribValue('Cd')
-			rgb2_sum = _lum(rgb2)
-			rgb3 = point3.attribValue('Cd')
-			rgb3_sum = _lum(rgb3)
-
-			found = False
-			if not _colorEqual(rgb,rgb2):
+				
 				point2.setAttribValue('Cd',(rgb2[0]+rgb[0],rgb2[1]+rgb[1],rgb2[2]+rgb[2]))
-				found = True
-			if not _colorEqual(rgb,rgb3):
-				point3.setAttribValue('Cd',(rgb3[0]+rgb[0],rgb3[1]+rgb[1],rgb3[2]+rgb[2]))
-				found = True
-			if found:
-				return True
+				prim.setAttribValue('Flow',0)
 
-		elif i == 0:
-
-			point = vertex.point()
-			rgb = point.attribValue('Cd')
-			
-			point2 = prim.vertices()[i+1].point()
-			rgb2 = point2.attribValue('Cd')
-			
-			rgb_sum = (rgb2[0]+rgb[0],rgb2[1]+rgb[1],rgb2[2]+rgb[2])
-
-			if not _colorEqual(rgb,rgb2):
-				point2.setAttribValue('Cd',rgb_sum)
-				return True
-			else:
-				if flow_direction == -1:
-					_checkForEndPoint(i,rgb_sum,prim,flow_direction,geometry)
-
-		elif i == total_verts:
-			point = vertex.point()
-			rgb = point.attribValue('Cd')
-			
-			point2 = prim.vertices()[i-1].point()
-			rgb2 = point2.attribValue('Cd')
-
-			rgb_sum = (rgb2[0]+rgb[0],rgb2[1]+rgb[1],rgb2[2]+rgb[2])
-			
-			if not _colorEqual(rgb,rgb2):
-				point2.setAttribValue('Cd',rgb_sum)
-				return True
-			else:
-				if flow_direction == 1:
-					_checkForEndPoint(i,rgb_sum,prim,flow_direction,geometry)
-
-		i = i + flow_direction
-
-''' 
-Run multithreaded solver step
+				if int(loc[1]) == 0:
+					prim2.setAttribValue('Flow',1)
+					prim2.setAttribValue('CurrentPoint',0)
+				else:
+					prim2.setAttribValue('Flow',-1)
+					prim2.setAttribValue('CurrentPoint',len(prim2.vertices())-1)
 '''
-def _threadSolverStep(primitives, geo):
-	i = 0
-	for prim in primitives:
-		found = False
-		if prim.attribValue('Flow') is not 0 and len(prim.vertices()) > 2:
-			found = _passColor(prim.attribValue('Flow'),prim,geo)
-		if found:
-			continue
-		i = i+1
-	return
-
+Main loop for solver function. Updates all points.
 '''
-Main loop for the solver. Call this in Python SOP
-'''
-def solverStep(currentGeo, previousGeo):
-	
+def solverStep():
 	geo = hou.pwd().geometry()
 
-	primitives = chunks(geo.prims(),len(geo.prims())/4)
-	'''
-	threads = []
-	for i in range(1):
-		t = threading.Thread(target =_threadSolverStep, args=(primitives.next(), geo, ))
-		threads.append(t)
-		t.start()
-
-	#groupStartEndPoints(geo)
-	
-	'''
+	# For each prim, look up current point and set next point based on flow direction.
 	i = 0
 	for prim in geo.prims():
-		found = False
 		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
 			break
-		if prim.attribValue('Flow') is not 0 and len(prim.vertices()) > 2:
-			found = _passColor(prim.attribValue('Flow'),prim,geo)
-		if found:
+		flowDir = prim.attribValue('Flow')
+		if flowDir == 0:
 			continue
+		
+		sizeOfPrim = len(prim.vertices())
+
+		currentPoint = prim.attribValue('CurrentPoint')
+		rgb1 = prim.vertices()[currentPoint].point().attribValue('Cd')
+
+		nextPoint = currentPoint + flowDir
+
+		# For all valid points that are not the end points of a stream
+		if (currentPoint > 0 and currentPoint < sizeOfPrim - 1) or (currentPoint == 0 and flowDir == 1) or (currentPoint == sizeOfPrim-1 and flowDir == -1):
+			rgb2 = prim.vertices()[nextPoint].point().attribValue('Cd')
+			rgbSum = (rgb1[0]+rgb2[0],rgb1[1]+rgb2[1],rgb1[2]+rgb2[2])
+			prim.vertices()[nextPoint].point().setAttribValue('Cd',rgbSum)
+			prim.setAttribValue('CurrentPoint',nextPoint)
+		# Jump to all the start points
+		elif currentPoint == 0 and flowDir == -1:
+			_checkForEndPoint(0,rgb1,prim,flowDir,geo)
+		# Jump to all the end points
+		elif currentPoint == sizeOfPrim-1 and flowDir == 1:
+			_checkForEndPoint(sizeOfPrim-1,rgb1,prim,flowDir,geo)
+
 		i = i+1
 
 def startPoints():
@@ -366,12 +286,13 @@ def startPoints():
 
 	# Add code to modify contents of geo.
 	# Use drop down menu to select examples.
+	colors = [(1.0,0.0,0.0),(0.0,1.0,0.0),(0.0,0.0,1.0)]
 
-	for i in range(10):
+	for i in range(len(colors)):
 	    rand = random.randrange(0,len(geo.prims()))
-	    rgb = (random.uniform(0,1),random.uniform(0,1),random.uniform(0,1))
-	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',rgb)
+	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',colors[i])
 	    geo.prims()[rand].setAttribValue('Flow',1)
+	    geo.prims()[rand].setAttribValue('CurrentPoint',0)
 
 
 
