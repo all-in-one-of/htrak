@@ -121,7 +121,7 @@ def _threadCreateAttribute(primitives,geo,end_points,radius):
 Read in curve data and create attributes for visualization.
 Find start points and end points within a spherical radius of each start and end.
 '''
-def createAttributes(radius):
+def createAttributes(radius,singleThreaded=False):
 	geo = hou.pwd().geometry()
 	prims = geo.prims()
 	# Initialize Attributs
@@ -135,7 +135,9 @@ def createAttributes(radius):
 		geo.addAttrib(hou.attribType.Prim,'StartNeighbors',"")
 	if geo.findPrimAttrib('CurrentPoint') is None:
 		geo.addAttrib(hou.attribType.Prim,'CurrentPoint',-1)
-
+	if geo.findGlobalAttrib('ActivePrims') is None:
+		geo.addAttrib(hou.attribType.Global,'ActivePrims', (0) )
+	
 	# Iterate through the streamlines and create a dict from id to Start and End Points
 	end_points = {}
 	i = 0
@@ -147,72 +149,42 @@ def createAttributes(radius):
 
 	# Using start and end dicts, create a new dict of stream # to start points and end
 	# points within the radius of a sphere
-	'''
-	stream_starts = {}
-	stream_ends = {}
-	
-	i = 0
-	for prim in geo.prims():
-		stream_starts[str(i)] = ''
-		stream_ends[str(i)] = ''
-		i = i+1
-	'''
-	'''
-	######################
-	# SINGLE THREADED CODE
-	######################
-	i = 0
-	for prim in geo.prims():
-		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
-			break
+	if singleThreaded:
+		_threadCreateAttribute(geo.prims(),geo,end_points,radius)
 
-		# Check prim start and end against all other prim start and ends.
-		# Group near ends and near starts.
-
-		pointA = prim.vertices()[0].point().position()
-
-		for stream_id in end_points:
-			if stream_id == str(i):
-				continue
-			pointB = end_points[stream_id]['start'][1]
-			if isInside(pointA,pointB,radius):
-				stream_starts[str(i)] = stream_starts[str(i)] + stream_id + ' ' + '0' + ','
-
-			pointB = end_points[stream_id]['end'][1]
-			if isInside(pointA,pointB,radius):
-				stream_starts[str(i)] = stream_starts[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
-
-		pointA = prim.vertices()[len(prim.vertices())-1].point().position()
-
-		for stream_id in end_points:
-			if stream_id == str(i):
-				continue
-			pointB = end_points[stream_id]['start'][1]
-			if isInside(pointA,pointB,radius):
-				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + '0' + ','
-
-			pointB = end_points[stream_id]['end'][1]
-			if isInside(pointA,pointB,radius):
-				stream_ends[str(i)] = stream_starts[str(i)] + stream_id + ' ' + str(end_points[stream_id]['end'][0]) + ','
-
-		prim.setAttribValue('StartNeighbors',stream_starts[str(i)])
-		prim.setAttribValue('EndNeighbors',stream_ends[str(i)])
-
-		i = i+1
-	'''
-
-	primitives = chunks(geo.prims(),len(geo.prims())/3)
-	threads = []
-	for i in range(3):
-		t = threading.Thread(target =_threadCreateAttribute, args=(primitives.next(),geo,end_points,radius, ))
-		threads.append(t)
-		t.start()
+	else:
+		primitives = chunks(geo.prims(),len(geo.prims())/3)
+		threads = []
+		for i in range(3):
+			t = threading.Thread(target =_threadCreateAttribute, args=(primitives.next(),geo,end_points,radius, ))
+			threads.append(t)
+			t.start()
 		#t.join()
 
 	#for t in threads:
 	#	t.join()
 
 	groupStartEndPoints(geo)
+
+def mergePrimTuples(current, add, remove):
+	output = ()
+	for val in current:
+		if val != remove:
+			output = output + (val,)
+	for val in add:
+		output = output + (val,)
+	return output
+
+def sumColors(color1, color2):
+	r = color1[0] + color2[0]
+	r = 1 if r > 1 else r
+	g = color1[1] + color2[1]
+	g = 1 if g > 1 else g
+	b = color1[2] + color2[1]
+	b = 1 if b > 1 else b
+
+	return ((r,g,b))
+	
 
 '''
 Helper function to check and see if the solver reaches the end of a stream
@@ -225,6 +197,8 @@ def _checkForEndPoint(index,rgb,prim,flow_direction,geometry):
 		ends = prim.attribValue('EndNeighbors')
 	if ends is not '':
 		ends_list = ends.split(',')
+		primAddList = ()
+		primRemoveList = ()
 		for end in ends_list:
 			loc = end.split()
 			if len(loc) > 0:
@@ -233,24 +207,53 @@ def _checkForEndPoint(index,rgb,prim,flow_direction,geometry):
 				prim2.setAttribValue('Flow',1)
 				rgb2 = point2.attribValue('Cd')
 				
-				point2.setAttribValue('Cd',(rgb2[0]+rgb[0],rgb2[1]+rgb[1],rgb2[2]+rgb[2]))
-				prim.setAttribValue('Flow',0)
+				rgbSum = sumColors(rgb,rgb2)
+
+				point2.setAttribValue('Cd',rgbSum)
 
 				if int(loc[1]) == 0:
 					prim2.setAttribValue('Flow',1)
 					prim2.setAttribValue('CurrentPoint',0)
+					
 				else:
 					prim2.setAttribValue('Flow',-1)
 					prim2.setAttribValue('CurrentPoint',len(prim2.vertices())-1)
+
+				primAddList = primAddList + (int(loc[0]),)
+
+		primTuple = geometry.intListAttribValue('ActivePrims')
+		newActiveTuple = mergePrimTuples(primTuple, primAddList, prim.number())
+		geometry.findGlobalAttrib('ActivePrims').setSize(len(newActiveTuple))
+		geometry.setGlobalAttribValue('ActivePrims',newActiveTuple)
+		prim.setAttribValue('Flow',0)
+
+
+
+def listToString(theList):
+	string = ""
+	for item in theList:
+		string = string + str(item)
+
+def stringToList(string,delimiter=" "):
+	splitString = string.split(delimiter)
+	newList = []
+	for string in splitString:
+		newList.append(int(string))
+	return newList
+
 '''
 Main loop for solver function. Updates all points.
 '''
 def solverStep():
 	geo = hou.pwd().geometry()
 
+	activePrims = geo.intListAttribValue('ActivePrims')
+
+
 	# For each prim, look up current point and set next point based on flow direction.
 	i = 0
-	for prim in geo.prims():
+	for index in activePrims:
+		prim = geo.prims()[index]
 		if hou.updateProgressAndCheckForInterrupt(int(float(i)/float(len(geo.prims()))*100)):
 			break
 		flowDir = prim.attribValue('Flow')
@@ -267,7 +270,7 @@ def solverStep():
 		# For all valid points that are not the end points of a stream
 		if (currentPoint > 0 and currentPoint < sizeOfPrim - 1) or (currentPoint == 0 and flowDir == 1) or (currentPoint == sizeOfPrim-1 and flowDir == -1):
 			rgb2 = prim.vertices()[nextPoint].point().attribValue('Cd')
-			rgbSum = (rgb1[0]+rgb2[0],rgb1[1]+rgb2[1],rgb1[2]+rgb2[2])
+			rgbSum = (sumColors(rgb1,rgb2))
 			prim.vertices()[nextPoint].point().setAttribValue('Cd',rgbSum)
 			prim.setAttribValue('CurrentPoint',nextPoint)
 		# Jump to all the start points
@@ -287,12 +290,18 @@ def startPoints():
 	# Add code to modify contents of geo.
 	# Use drop down menu to select examples.
 	colors = [(1.0,0.0,0.0),(0.0,1.0,0.0),(0.0,0.0,1.0)]
-
+	activeTuple = ()
 	for i in range(len(colors)):
 	    rand = random.randrange(0,len(geo.prims()))
 	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',colors[i])
 	    geo.prims()[rand].setAttribValue('Flow',1)
 	    geo.prims()[rand].setAttribValue('CurrentPoint',0)
+
+	    activeTuple = activeTuple + (rand,)
+	
+	primTuple = geo.findGlobalAttrib('ActivePrims')
+	primTuple.setSize(len(activeTuple))
+	geo.setGlobalAttribValue('ActivePrims',activeTuple)
 
 
 
