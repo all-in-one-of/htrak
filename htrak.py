@@ -125,8 +125,8 @@ def createAttributes(radius,singleThreaded=False):
 	geo = hou.pwd().geometry()
 	prims = geo.prims()
 	# Initialize Attributs
-	if geo.findPointAttrib('Signal') is None:
-		geo.addAttrib(hou.attribType.Point,'Signal',(0,0,0))
+	if geo.findPointAttrib('Active') is None:
+		geo.addAttrib(hou.attribType.Point,'Active',0)
 	if geo.findPrimAttrib('Flow') is None:
 		geo.addAttrib(hou.attribType.Prim,'Flow',0)
 	if geo.findPrimAttrib('EndNeighbors') is None:
@@ -178,10 +178,13 @@ def mergePrimTuples(current, add, remove):
 def sumColors(color1, color2):
 	r = color1[0] + color2[0]
 	r = 1 if r > 1 else r
+	#r = 0 if r < 0 else r
 	g = color1[1] + color2[1]
 	g = 1 if g > 1 else g
+	#g = 0 if g < 0 else g
 	b = color1[2] + color2[1]
 	b = 1 if b > 1 else b
+	#b = 0 if b < 0 else b
 
 	return ((r,g,b))
 	
@@ -210,6 +213,7 @@ def _checkForEndPoint(index,rgb,prim,flow_direction,geometry):
 				rgbSum = sumColors(rgb,rgb2)
 
 				point2.setAttribValue('Cd',rgbSum)
+				point2.setAttribValue('Active',1)
 
 				if int(loc[1]) == 0:
 					prim2.setAttribValue('Flow',1)
@@ -249,7 +253,6 @@ def solverStep():
 
 	activePrims = geo.intListAttribValue('ActivePrims')
 
-
 	# For each prim, look up current point and set next point based on flow direction.
 	i = 0
 	for index in activePrims:
@@ -272,15 +275,21 @@ def solverStep():
 			rgb2 = prim.vertices()[nextPoint].point().attribValue('Cd')
 			rgbSum = (sumColors(rgb1,rgb2))
 			prim.vertices()[nextPoint].point().setAttribValue('Cd',rgbSum)
+			prim.vertices()[nextPoint].point().setAttribValue('Active',1)
+			prim.vertices()[currentPoint].point().setAttribValue('Active',0)
 			prim.setAttribValue('CurrentPoint',nextPoint)
 		# Jump to all the start points
 		elif currentPoint == 0 and flowDir == -1:
 			_checkForEndPoint(0,rgb1,prim,flowDir,geo)
+			prim.vertices()[currentPoint].point().setAttribValue('Active',0)
 		# Jump to all the end points
 		elif currentPoint == sizeOfPrim-1 and flowDir == 1:
 			_checkForEndPoint(sizeOfPrim-1,rgb1,prim,flowDir,geo)
+			prim.vertices()[currentPoint].point().setAttribValue('Active',0)
 
 		i = i+1
+
+	
 
 def startPoints():
 
@@ -294,6 +303,7 @@ def startPoints():
 	for i in range(len(colors)):
 	    rand = random.randrange(0,len(geo.prims()))
 	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',colors[i])
+	    geo.prims()[rand].vertices()[0].point().setAttribValue('Active',1)
 	    geo.prims()[rand].setAttribValue('Flow',1)
 	    geo.prims()[rand].setAttribValue('CurrentPoint',0)
 
