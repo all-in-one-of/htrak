@@ -177,15 +177,20 @@ def mergePrimTuples(current, add, remove):
 
 def sumColors(color1, color2):
 	r = color1[0] + color2[0]
-	r = 1 if r > 1 else r
-	#r = 0 if r < 0 else r
+	if r > 1.0:
+		r = 1.0
+	elif r < 0.0:
+		r = 0.0
 	g = color1[1] + color2[1]
-	g = 1 if g > 1 else g
-	#g = 0 if g < 0 else g
-	b = color1[2] + color2[1]
-	b = 1 if b > 1 else b
-	#b = 0 if b < 0 else b
-
+	if g > 1.0:
+		g = 1.0
+	elif g < 0.0:
+		g = 0.0
+	b = color1[2] + color2[2]
+	if b > 1.0:
+		b = 1.0
+	elif b < 0.0:
+		b = 0.0
 	return ((r,g,b))
 	
 
@@ -313,6 +318,16 @@ def startPoints():
 	primTuple.setSize(len(activeTuple))
 	geo.setGlobalAttribValue('ActivePrims',activeTuple)
 
+
+def groupStartAndEndOfPrim(primNumber):
+	starts = geo.createPointGroup('StartPoints' + '_Prim_' + str(primNumber))
+	ends = geo.createPointGroup('EndPoints' + '_Prim_' + str(primNumber))
+
+	for prim in geo.prims():
+		if hou.updateProgressAndCheckForInterrupt():
+			break
+		starts.add(prim.vertices()[0].point())
+		ends.add(prim.vertices()[len(prim.vertices())-1].point())
 
 
 
