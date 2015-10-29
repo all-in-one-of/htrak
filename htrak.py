@@ -121,7 +121,7 @@ def _threadCreateAttribute(primitives,geo,end_points,radius):
 Read in curve data and create attributes for visualization.
 Find start points and end points within a spherical radius of each start and end.
 '''
-def createAttributes(radius,singleThreaded=False):
+def createAttributes(radius,singleThreaded=True):
 	geo = hou.pwd().geometry()
 	prims = geo.prims()
 	# Initialize Attributs
@@ -219,6 +219,7 @@ def _checkForEndPoint(index,rgb,prim,flow_direction,geometry):
 
 				point2.setAttribValue('Cd',rgbSum)
 				point2.setAttribValue('Active',1)
+				point2.setAttribValue('Age',1.0)
 
 				if int(loc[1]) == 0:
 					prim2.setAttribValue('Flow',1)
@@ -281,6 +282,7 @@ def solverStep():
 			rgbSum = (sumColors(rgb1,rgb2))
 			prim.vertices()[nextPoint].point().setAttribValue('Cd',rgbSum)
 			prim.vertices()[nextPoint].point().setAttribValue('Active',1)
+			prim.vertices()[nextPoint].point().setAttribValue('Age',1.0)
 			prim.vertices()[currentPoint].point().setAttribValue('Active',0)
 			prim.setAttribValue('CurrentPoint',nextPoint)
 		# Jump to all the start points
@@ -294,25 +296,34 @@ def solverStep():
 
 		i = i+1
 
-	
+def _initializePoint(geo, primNumber, colors,i):
+	geo.prims()[primNumber].vertices()[0].point().setAttribValue('Cd',colors[i%len(colors)])
+	geo.prims()[primNumber].vertices()[0].point().setAttribValue('Active',1)
+	geo.prims()[primNumber].vertices()[0].point().setAttribValue('Age',1.0)
+	geo.prims()[primNumber].setAttribValue('Flow',1)
+	geo.prims()[primNumber].setAttribValue('CurrentPoint',0)
 
-def startPoints():
+def startPoints(specPoints):
 
 	node = hou.pwd()
 	geo = node.geometry()
 
-	# Add code to modify contents of geo.
-	# Use drop down menu to select examples.
 	colors = [(1.0,0.0,0.0),(0.0,1.0,0.0),(0.0,0.0,1.0)]
 	activeTuple = ()
-	for i in range(len(colors)):
-	    rand = random.randrange(0,len(geo.prims()))
-	    geo.prims()[rand].vertices()[0].point().setAttribValue('Cd',colors[i])
-	    geo.prims()[rand].vertices()[0].point().setAttribValue('Active',1)
-	    geo.prims()[rand].setAttribValue('Flow',1)
-	    geo.prims()[rand].setAttribValue('CurrentPoint',0)
+	locs = specPoints.split()
+	if len(locs) > 0:
+		i = 0
+    	for loc in locs:
+			_initializePoint(geo,int(loc),colors,i)
+			activeTuple = activeTuple + (int(loc),)
+			i = i+1
+	else:
+		for i in range(len(colors)):
+			rand = random.randrange(0,len(geo.prims()))
+			_initializePoint(geo,rand,colors,i)
+			activeTuple = activeTuple + (rand,)
 
-	    activeTuple = activeTuple + (rand,)
+	
 	
 	primTuple = geo.findGlobalAttrib('ActivePrims')
 	primTuple.setSize(len(activeTuple))
